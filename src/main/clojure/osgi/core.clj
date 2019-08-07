@@ -89,6 +89,19 @@
 (defn list-features []
   (->> (list-repositories) (mapcat #(.getFeatures %))))
 
+(defn artifact-size [mvn-coord]
+  (let [group (:g mvn-coord)
+        artifact-id (:a mvn-coord)
+        version (:v mvn-coord)
+        path (str "/Users/lambeaux/.m2/repository/"
+                  (clojure.string/replace group "." "/")
+                  "/" artifact-id "/" version "/" artifact-id "-" version ".jar")
+        file (clojure.java.io/file path)]
+    (.length file)))
+
+
+(artifact-size {:g "ddf.platform.util", :a "platform-util", :v "2.16.0-SNAPSHOT"})
+
 (comment
   (->> (bundle-list)
        (map bundle->map)
@@ -99,4 +112,34 @@
 
   (->> (list-features)
        (filter #(.. % getName (contains "admin-ui")))
-       (map bean)))
+       (map bean))
+
+  (->> (bundle-list)
+       (map bundle->map)
+       (map (fn [bundle]
+              (get-in bundle [:headers :embedded-artifacts])))
+       #_(filter (fn [embedded-artifacts] (> (count embedded-artifacts) 0)))
+       (mapcat keys)
+       (frequencies)
+       (sort-by second)
+       (map (fn [[artifact count]]
+              {:artifact artifact :count count}))
+       #_(count)
+       (print-table [:count :artifact]))
+
+  (->> (bundle-list)
+       (map bundle->map)
+       (map (fn [bundle]
+              (get-in bundle [:headers :embedded-artifacts])))
+       #_(filter (fn [embedded-artifacts] (> (count embedded-artifacts) 0)))
+       (mapcat vals)
+       (frequencies)
+       (map (fn [[artifact count]]
+              (let [size (artifact-size artifact)]
+                {:artifact artifact :count count :size size :total-size (* size count)})))
+       (sort-by :total-size >)
+       (map :total-size)
+       (reduce +)
+       #_(count)
+       #_(print-table [:count :artifact])))
+
