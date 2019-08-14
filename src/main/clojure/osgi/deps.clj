@@ -4,6 +4,9 @@
             [clojure.java.shell :refer [sh]]
             [dorothy.core :as dot]
             [dorothy.jvm :refer [save! show!]]))
+(comment
+  "The deps namespace is for functions that help manipulate OSGi metadata and
+  dependencies.")
 
 (defn render [graph]
   (let [png "/tmp/render.png"]
@@ -17,9 +20,9 @@
       (show! {:layout :neato})))
 
 (defn view-after-save [graph props]
-  (let [png "/tmp/render.svg"]
-    (-> graph dot/dot (save! png props))
-    (sh "open" png)))
+  (let [file "/tmp/render.svg"]
+    (-> graph dot/dot (save! file props))
+    (sh "open" file)))
 
 (defn get-deps [bundles]
   (->> bundles
@@ -75,17 +78,19 @@
        :resourceRepos (.getResourceRepositories f)
        :repoUrl       (.getRepositoryUrl f)})
 
-(defn bundles []
+; ##################################################################
+
+(defn bundles [f]
   (->> (osgi/bundle-list)
        (map osgi/bundle->map)
-       (filter (fn [bundle] (->> bundle (:headers) (:built-by) (= "lambeaux"))))))
+       (filter f)))
 
 (defn features []
   (->> (osgi/list-features)
        (map feature->map)))
 
 (comment
-  (->> (bundles)
+  (->> (bundles (fn [x] true))
        (filter #(.contains (:name %) "directorymonitor"))
        (first)))
 
@@ -94,63 +99,175 @@
        (filter #(.contains (:name %) "directorymonitor"))
        (first)))
 
+; ##################################################################
+
+(defn bundles-partitioned
+  "Example function that partitions bundles. Takes a
+  coll of bundle defs and returns a coll of bundle def colls."
+  [bundles]
+  (let [cushion 1
+        id-set (set (map :id bundles))]
+    (->> bundles
+         (partition-by
+           #(and
+              (contains? id-set (+ (:id %) cushion))
+              (contains? id-set (- (:id %) cushion)))))))
+(comment
+  (map :name (bundles (fn [x] true)))
+  (->> (bundles (fn [x] true))
+       (bundles-partitioned)
+       (map #(map :name %)))
+  #_ ())
+
+
+(defn get-cdm-bundle
+  "Fetches the Content Directory Monitor bundle. Useful
+  for examples and testing."
+  []
+  (->> (bundles (fn [x] true))
+       (filter #(.contains (:name %) "directorymonitor"))
+       (first)))
+
+
+(defn select-all
+  "Predicate that always returns true, effectively filters
+  nothing when a selection is needed. Works for any arg."
+  [any]
+  true)
+(comment (select-all []))
+
+
+(defn selectf-bundles-built-by
+  "Predicate factory for bundle defs that eval true if a match is found
+  against the name of the user who built the bundle."
+  [user]
+  (fn [b] (->> b (:headers) (:built-by) (= user))))
+
+
+(defn selectf-bundles-by-name
+  "Predicate factory for bundle defs that eval true if a match is found
+  against the bundle name, if it contains the provided text."
+  [text]
+  (fn [b] (.contains (:name b) text)))
+
+
+(defn select-packages-ddf-only
+  "Predicate for package strings that only evals to true
+  when the package is a direct DDF package, not third party."
+  [p]
+  (or (.contains p "org.codice") (.contains p "ddf.")))
+(comment
+  (select-packages-ddf-only "org.codice.ddf.catalog.monitor")
+  (select-packages-ddf-only "ddf.data.types")
+  (select-packages-ddf-only "net.opensaml.pki"))
+
+
 (defn packages-bundles-import
-  "Given a bundle definition, return a single-entry map of bundle
+  "Given a predicate f and bundle definition, return a single-entry map of bundle
   name (key) to a list of imported packages (value) for only the
-  packages that concern DDF. Third party dependencies are not
-  included."
-  [bundle]
+  packages for which f returns true. f should accept a string, the
+  package name."
+  [f bundle]
   (let [name (:name bundle)]
     {name (->> bundle
                (:headers)
                (:import-package)
                (map key)
-               (filter #(or (.contains % "org.codice") (.contains % "ddf."))))}))
+               (filter f))}))
+(comment
+  (packages-bundles-import select-all (get-cdm-bundle))
+  (packages-bundles-import select-packages-ddf-only (get-cdm-bundle)))
+
 
 (defn packages-exported-in-ddf
-  "Given a bundle definition, return a collection of single-entry
+  "Given a predicate and bundle definition, return a collection of single-entry
   maps of export-package (key) to bundle name (value) for only
-  the packages that concern DDF. Third party dependencies are not
-  included."
-  [bundle]
+  the packages for which f returns true. f should accept a string,
+  the package name."
+  [f bundle]
   (let [name (:name bundle)]
     (->> bundle
          (:headers)
          (:export-package)
          (map key)
-         (filter #(or (.contains % "org.codice") (.contains % "ddf.")))
+         (filter f)
          (map (fn [package] {package name})))))
+(comment
+  ; CDM not the greatest example for this fn, fix later
+  (packages-exported-in-ddf select-all (get-cdm-bundle))
+  (packages-exported-in-ddf select-packages-ddf-only (get-cdm-bundle)))
 
-(defn package-import-map []
-  (->> (bundles)
-       (map packages-bundles-import)
+
+(defn package-import-map
+  "Turns a coll of bundle defs into a map of bundle name (key)
+  to a coll of package names (value) imported by that bundle.
+  Curries f as the package filter."
+  [f bundles]
+  (->> bundles
+       (map (fn [b] (packages-bundles-import f b)))
        (into (sorted-map))))
+(comment
+  (package-import-map select-all (bundles select-all))
+  (package-import-map select-packages-ddf-only (bundles select-all)))
 
-(defn package-export-map []
-  (->> (bundles)
-       (map packages-exported-in-ddf)
+
+(defn package-export-map
+  "Turns a coll of bundle defs into a map of package name (key)
+  to a bundle name (value), which is the exporter of that package.
+  Curries f as the package filter."
+  [f bundles]
+  (->> bundles
+       (map (fn [b] (packages-exported-in-ddf f b)))
        (flatten)
        (into (sorted-map))))
+(comment
+  (package-export-map select-all (bundles select-all))
+  (package-export-map select-packages-ddf-only (bundles select-all)))
 
-(defn map->edge-list
-  "Doc"
+
+(defn package-depmap
+  "Turns a coll of bundle defs into an edge list of
+  bundle dependencies using packages to define the links.
+  Curries f as the package filter."
+  [f bundles]
+  (let [imports (package-import-map f bundles)
+        exports (package-export-map f bundles)]
+    (into {}
+      (map
+        (fn [[bundle package-imports]]
+          [bundle (->> package-imports
+                       (map #(get exports %))
+                       (filter #(not (= nil %)))
+                       (set))])
+        imports))))
+(comment
+  (package-depmap select-all (bundles select-all))
+  (package-depmap select-packages-ddf-only (bundles select-all)))
+
+
+(defn depmap->edge-list
+  "Given a dependency map of node name (key) to a coll
+  of node names (value) will return a new coll of vector
+  pairs representing the dependency map's edges."
   [m]
-  (mapcat (fn [[k v]] (map vector (repeat k) v)) m))
+  (mapcat
+    (fn [[k v]]
+      (map vector (repeat k) v)) m))
+(comment
+  (depmap->edge-list {"a" ["x" "y" "z"], "b" ["x" "s" "t"]}))
 
-(defn edges-for-packages
-  "Doc"
-  []
-  (let [imports (package-import-map)
-        exports (package-export-map)]
-    (map->edge-list
-      (into {}
-            (map
-              (fn [[bundle package-imports]]
-                [bundle
-                 (set (map #(get exports %) package-imports))]) imports)))))
+; ##################################################################
 
-(defn make-node-layer
-  "Doc"
+(defn layer-create-edge
+  "Used for mapping bundle defs to graphviz data structures."
+  [f bundles]
+  (into [{}
+         (dot/edge-attrs {:color :black})]
+        (depmap->edge-list (package-depmap f bundles))))
+
+
+(defn layer-create-node
+  "Used for mapping bundle defs to graphviz data structures."
   [layer-name layer-label bundles]
   (dot/subgraph
     layer-name
@@ -158,74 +275,36 @@
            (dot/node-attrs {:style :filled})]
           (map vector bundles))))
 
-(defn make-edge-layer
-  "Doc"
-  []
-  (into [{}
-         (dot/edge-attrs {:color :black})]
-        (edges-for-packages)))
 
-(defn bundles-partitioned []
-  (let [cushion 1
-        id-coll (bundles)
-        id-set (set (map :id id-coll))]
-    (->> id-coll
-         (partition-by
-           #(and
-              (contains? id-set (+ (:id %) cushion))
-              (contains? id-set (- (:id %) cushion)))))))
-
-(defn make-node-layers []
-  (->> (bundles-partitioned)
+(defn layer-bulkcreate-nodes
+  "Used for mapping bundle defs to graphviz data structures."
+  [bundles]
+  (->> bundles
+       (bundles-partitioned)
        (map-indexed
          (fn [idx bundles]
            (let [cluster (keyword (str "cluster_" idx))]
-             (make-node-layer cluster (str "test_" idx) (map :name bundles)))))))
+             (layer-create-node cluster (str "test_" idx) (map :name bundles)))))))
+
+; ##################################################################
 
 (comment
-  (reduce
-    (fn [out in]
-      (if (= (count in) 1)
-        (into (last out) (first in))))
-    [[]]
-    [[1] [2] [3 4 5] [6] [7] [8 9 10] [11] [12]]))
 
-(comment
-  [[1 2] [3 4 5 6 7] [8 9 10 11 12]])
+  ; Create a graph of just catalog bundles, limiting dependencies to DDF packages only
+  (let [bundles (bundles
+                  (and
+                    (selectf-bundles-built-by "lambeaux")
+                    (selectf-bundles-by-name "catalog-")))]
+    (view-after-save
+      (dot/digraph
+        (into
+          [(dot/subgraph :edges (layer-create-edge select-packages-ddf-only bundles))]
+          (layer-bulkcreate-nodes bundles)))
+      {:format :svg :layout :dot}))
 
+  #_ ())
 
-
-(comment
-  (let [imports (package-import-map)
-        exports (package-export-map)]
-    (->> imports
-         (map (fn [[k v]]
-                [k (set (map #(get exports %) v))]))))
-
-  (bundles-partitioned)
-  (map :id (bundles))
-  (->> (bundles)
-       (map :headers)
-       (map :built-by))
-  (->> (bundles)
-       (last)
-       (packages-bundles-import))
-  (package-import-map)
-  (package-export-map)
-  (make-node-layers)
-  (make-edge-layer)
-  (view-after-save
-    (dot/digraph
-      (into [(dot/subgraph
-               :edges (make-edge-layer))] (make-node-layers))
-      #_[(make-node-layer
-           (->> (bundles)
-                (map :name)
-                #_(take 10)) :cluster_0 "label")])
-    {:format :svg :layout :dot}))
-
-(comment (view-after-save (package-deps) {:format :png, :layout :dot}))
-
+; Basic graphviz data sample
 (comment
   (view-after-save [
                     ; Define the nodes
@@ -237,7 +316,7 @@
                     [:a :c]
                     [:b :c {:arrowhead :empty}]]))
 
-; From http://www.graphviz.org/content/cluster
+; More advanced graphviz data sample, from http://www.graphviz.org/content/cluster
 (comment
   (view-after-save
     (dot/digraph
@@ -290,9 +369,22 @@
          :otherDeps [{}
                      (dot/edge-attrs {:color :black})
                      [:b4 :b2]])])
-    {:format :png :layout :dot}))
+    {:format :svg :layout :dot}))
 
 (comment
   (clojure.pprint/pprint (map :location (map osgi/bundle->map (osgi/bundle-list))))
   (render (package-deps))
   (render (service-deps)))
+
+(defn merge-left
+  "Doc"
+  [v]
+  (reduce
+    (fn [out in]
+      (if (= (count in) 1)
+        (conj (pop out) (conj (last out) (first in)))
+        (conj out in)))
+    [[]] v))
+
+(comment
+  (merge-left [[1] [2] [3 4 5] [6] [7] [8 9 10] [11] [12]]))
