@@ -1,10 +1,9 @@
 (ns osgi.graph
-  (:require [osgi.deps :as deps]))
-(comment
   "The graph namespace is for functions and data structures that have to do
   with analysis of graphs themselves. Examples may include tests for circular
   dependencies, IO edge counts, etc. See https://cljdoc.org/d/aysylu/loom/1.0.2/api/loom
-  for a potential third party solution to these kinds of problems.")
+  for a potential third party solution to these kinds of problems."
+  (:require [osgi.deps :as deps]))
 
 (defn follow-chain [chain next deps]
   (if (nil? next) chain

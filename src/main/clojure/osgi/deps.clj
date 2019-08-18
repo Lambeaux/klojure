@@ -1,12 +1,11 @@
 (ns osgi.deps
+  "The deps namespace is for functions that help manipulate OSGi metadata and
+  dependencies."
   (:require [osgi.core :as osgi]
             [clojure.java.io :as io]
             [clojure.java.shell :refer [sh]]
             [dorothy.core :as dot]
             [dorothy.jvm :refer [save! show!]]))
-(comment
-  "The deps namespace is for functions that help manipulate OSGi metadata and
-  dependencies.")
 
 (defn render [graph]
   (let [png "/tmp/render.png"]
@@ -80,10 +79,12 @@
 
 ; ##################################################################
 
-(defn bundles [f]
-  (->> (osgi/bundle-list)
-       (map osgi/bundle->map)
-       (filter f)))
+(defn bundles
+  ([] (bundles (constantly true)))
+  ([f]
+   (->> (osgi/bundle-list)
+        (map osgi/bundle->map)
+        (filter f))))
 
 (defn features []
   (->> (osgi/list-features)
@@ -128,14 +129,19 @@
        (filter #(.contains (:name %) "directorymonitor"))
        (first)))
 
+(defn get-klojure-bundle
+  "Fetches the Content Directory Monitor bundle. Useful
+  for examples and testing."
+  []
+  (->> (bundles (fn [x] true))
+       (filter #(.contains (:name %) "klojure"))
+       (first)))
 
 (defn select-all
   "Predicate that always returns true, effectively filters
   nothing when a selection is needed. Works for any arg."
   [any]
   true)
-(comment (select-all []))
-
 
 (defn selectf-bundles-built-by
   "Predicate factory for bundle defs that eval true if a match is found
@@ -143,13 +149,11 @@
   [user]
   (fn [b] (->> b (:headers) (:built-by) (= user))))
 
-
 (defn selectf-bundles-by-name
   "Predicate factory for bundle defs that eval true if a match is found
   against the bundle name, if it contains the provided text."
   [text]
   (fn [b] (.contains (:name b) text)))
-
 
 (defn select-packages-ddf-only
   "Predicate for package strings that only evals to true
@@ -161,69 +165,86 @@
   (select-packages-ddf-only "ddf.data.types")
   (select-packages-ddf-only "net.opensaml.pki"))
 
-
-(defn packages-bundles-import
-  "Given a predicate f and bundle definition, return a single-entry map of bundle
-  name (key) to a list of imported packages (value) for only the
-  packages for which f returns true. f should accept a string, the
-  package name."
-  [f bundle]
-  (let [name (:name bundle)]
-    {name (->> bundle
-               (:headers)
-               (:import-package)
-               (map key)
-               (filter f))}))
-(comment
-  (packages-bundles-import select-all (get-cdm-bundle))
-  (packages-bundles-import select-packages-ddf-only (get-cdm-bundle)))
-
-
-(defn packages-exported-in-ddf
-  "Given a predicate and bundle definition, return a collection of single-entry
-  maps of export-package (key) to bundle name (value) for only
-  the packages for which f returns true. f should accept a string,
-  the package name."
-  [f bundle]
-  (let [name (:name bundle)]
-    (->> bundle
-         (:headers)
-         (:export-package)
-         (map key)
-         (filter f)
-         (map (fn [package] {package name})))))
-(comment
-  ; CDM not the greatest example for this fn, fix later
-  (packages-exported-in-ddf select-all (get-cdm-bundle))
-  (packages-exported-in-ddf select-packages-ddf-only (get-cdm-bundle)))
-
-
 (defn package-import-map
   "Turns a coll of bundle defs into a map of bundle name (key)
   to a coll of package names (value) imported by that bundle.
   Curries f as the package filter."
   [f bundles]
   (->> bundles
-       (map (fn [b] (packages-bundles-import f b)))
-       (into (sorted-map))))
+       (map (fn [bundle]
+              (let [name (:name bundle)]
+                {name (->> bundle
+                           (:headers)
+                           (:import-package)
+                           (map key)
+                           (filter f))})))
+       (into {})))
 (comment
-  (package-import-map select-all (bundles select-all))
-  (package-import-map select-packages-ddf-only (bundles select-all)))
+  (package-import-map select-all (bundles))
+  (package-import-map select-packages-ddf-only (bundles)))
 
 
+(defn- bundle-extract-header-info [k]
+  (fn [bundles]
+    (->> bundles
+         (map (fn [bundle]
+                (let [name (:name bundle)]
+                  {name (->> bundle
+                             (:headers)
+                             k
+                             (map key))})))
+         (into {}))))
+
+(def bundle-imports (bundle-extract-header-info :import-package))
+(def bundle-exports (bundle-extract-header-info :export-package))
+
+(defn flat-map-invert
+  "{:key [1 2 3]} => {1 :key 2 :key 3 :key}"
+  [m]
+  (into {}
+        (map
+          (fn [[k vs]]
+            (map vector vs (repeat k)))
+          m)))
+
+(comment
+  (flat-map-invert {:key [1 2 3]})
+  (bundle-imports (bundles (selectf-bundles-built-by "lambeaux")))
+  (bundle-exports (bundles (selectf-bundles-built-by "lambeaux"))))
+
+(defn join [m1 m2])
+
+
+; This is the backwards guy
 (defn package-export-map
   "Turns a coll of bundle defs into a map of package name (key)
   to a bundle name (value), which is the exporter of that package.
   Curries f as the package filter."
   [f bundles]
   (->> bundles
-       (map (fn [b] (packages-exported-in-ddf f b)))
+       (map (fn [bundle]
+              (let [name (:name bundle)]
+                (->> bundle
+                     (:headers)
+                     (:export-package)
+                     (map key)
+                     (filter f)
+                     (map (fn [package] {package name}))))))
        (flatten)
-       (into (sorted-map))))
-(comment
-  (package-export-map select-all (bundles select-all))
-  (package-export-map select-packages-ddf-only (bundles select-all)))
+       (into {})))
 
+(comment
+  (package-export-map select-all (bundles))
+  (package-export-map select-packages-ddf-only (bundles)))
+
+bundle -> exports
+
+bundle -> imports
+
+bundle -> imports <-> exports <- bundle
+bundle -> consumes <-> supplies <- bundle
+
+bundle -> [bundle]
 
 (defn package-depmap
   "Turns a coll of bundle defs into an edge list of
@@ -241,8 +262,8 @@
                        (set))])
         imports))))
 (comment
-  (package-depmap select-all (bundles select-all))
-  (package-depmap select-packages-ddf-only (bundles select-all)))
+  (package-depmap select-all (bundles))
+  (package-depmap select-packages-ddf-only (bundles)))
 
 
 (defn depmap->edge-list
@@ -288,17 +309,21 @@
 
 ; ##################################################################
 
+(->> (bundles)
+     (select-bundles-built-by "lambeaux")
+     (select-bundles-by-name "solr"))
+
 (comment
 
   ; Create a graph of just catalog bundles, limiting dependencies to DDF packages only
   (let [bundles (bundles
                   (and
                     (selectf-bundles-built-by "lambeaux")
-                    (selectf-bundles-by-name "catalog-")))]
+                    (selectf-bundles-by-name "solr")))]
     (view-after-save
       (dot/digraph
         (into
-          [(dot/subgraph :edges (layer-create-edge select-packages-ddf-only bundles))]
+          [(dot/subgraph :edges (layer-create-edge select-all bundles))]
           (layer-bulkcreate-nodes bundles)))
       {:format :svg :layout :dot}))
 
