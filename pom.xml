@@ -109,6 +109,11 @@
             <version>${ddf.version}</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+          <groupId>proto-repl</groupId>
+          <artifactId>proto-repl</artifactId>
+          <version>0.3.1</version>
+        </dependency>
     </dependencies>
 
     <build>
