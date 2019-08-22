@@ -142,6 +142,7 @@
             imports))))
 
 (comment
+  (take 30 (osgi/bundles))
   (bundle-imports (take 30 (osgi/bundles)))
   (package-depmap (constantly true) (osgi/bundles))
   (package-depmap (select-packages-ddf-only) (osgi/bundles)))
