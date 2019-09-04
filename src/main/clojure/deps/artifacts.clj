@@ -462,10 +462,11 @@
        artifact-xml
        pom-parent-chain-itr))
 
-;;
-;; Tree seq experiment, but does not preserve depth levels.
-
 (comment
+
+  ;;
+  ;; Tree seq experiment, but does not preserve depth levels.
+
   (tree-seq
     #(> (count (down-one-level-deep %)) 0)
     down-one-level-deep
@@ -493,16 +494,107 @@
   (down-one-level-deep
     {:g "org.apache.karaf.shell", :a "org.apache.karaf.shell.core", :v "4.1.2"})
   (get-chain
-    {:g "org.apache.karaf.shell", :a "org.apache.karaf.shell.core", :v "4.1.2"})
+    {:g "org.apache.karaf.shell", :a "org.apache.karaf.shell.core", :v "4.1.2"}))
 
+(defn- or-reduce
+  "Turns the or macro into a function."
+  [p coll]
+  (reduce (fn [x y] (or x (p y))) false coll))
+
+(comment
+  (or-reduce #(.contains % "a") ["b" "c" "d" "e"]))
+
+(defn- keep?
+  "Determines if a branch of a tree can be kept or not."
+  [p a]
+  (let [deps (:deps a)
+        keep-me (p a)]
+    (if (nil? deps) keep-me (or keep-me (or-reduce #(keep? p %) deps)))))
+
+(comment
+  (keep? #(.contains (:art %) "a")
+         {:art "c"
+          :deps (list {:art "b"
+                       :deps (list {:art "a"})})}))
+
+(defn- artifact-tree-filter
+  "Filters entire branches based upon the predicate."
+  [p tree]
+  (->> tree
+       (map
+         #(let [art (:art %)
+                deps (:deps %)]
+            (if (nil? deps)
+              {:art art}
+              {:art art :deps (artifact-tree-filter p deps)})))
+       (filter #(keep? p %))))
+
+(def data-tree
+  (list
+   {:art "alpha"
+    :deps (list {:art "delta"
+                 :deps (list {:art "oscar"})}
+                {:art "echo"
+                 :deps (list {:art "oscar"}
+                             {:art "mike"})})}
+   {:art "bravo"
+    :deps (list {:art "foxtrot"
+                 :deps (list {:art "zulu"})}
+                {:art "gulf"
+                 :deps (list {:art "mike"})}
+                {:art "hotel"})}
+   {:art "charlie"
+    :deps nil}
+   {:art "niner"
+    :deps (list {:art "mike"})}))
+
+(comment
+  (do data-tree)
+  (artifact-tree-filter #(.contains (:art %) "zulu") data-tree)
+  ;; Guava
+  (->> {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"}
+       artifact-tree
+       (artifact-tree-filter #(.contains (:art %) "guava")))
+  ;; OpenEJB
+  (->> {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"}
+       artifact-tree
+       (artifact-tree-filter #(.contains (:art %) "openejb")))
+  ;; Log4j
+  (->> {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"}
+       artifact-tree
+       (artifact-tree-filter #(.contains (:art %) "log4j")))
+  ;; Java EE
+  (->> {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"}
+       artifact-tree
+       (artifact-tree-filter #(.contains (:art %) "javaee-api")))
+  ;; Javax Mail
+  (->> {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"}
+       artifact-tree
+       (artifact-tree-filter #(.contains (:art %) "javax.mail")))
   ;;
   ;; New stuff will aggregate the missing version problem
   ;; We're also filtering out test scope
+  ;; TODO - Need to fix Maven vars elsewhere, i.e.
+  (comment {:art "mvn:${cxf.asm.groupId}/${cxf.asm.artifactId}/3.3.1"})
+  ;;
   (artifact-tree {:g "djblue.github.com" :a "klojure" :v "0.0.1-SNAPSHOT"})
   (artifact-tree {:g "org.clojure", :a "clojure", :v "1.9.0"})
   ;;
   ;; Best test case for Guava
+  (down-one-level-deep {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"})
   (artifact-tree {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"})
+
+  ;;
+  ;; Subtree / branch filtering
+  ;; Determine if an entire path is relevant or not
+  ;; TODO - Recursive, make iterative later
+  ;; test with openejb, log4j, c3p0, javaee-api, or javax.mail
+  (let [dep-tree
+        (artifact-tree {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"})
+        pred #(.contains (:art %) "guava")
+        mapper (fn [x] {})]
+
+    (map mapper dep-tree))
   ;;
   ;; Edge list?
   ;; (1) Go down length of tree, (2) aggregate dep list with parent name held constant,
