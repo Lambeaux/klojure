@@ -517,7 +517,7 @@
           :deps (list {:art "b"
                        :deps (list {:art "a"})})}))
 
-(defn- artifact-tree-filter
+(defn artifact-tree-filter
   "Filters entire branches based upon the predicate."
   [p tree]
   (->> tree
@@ -528,6 +528,19 @@
               {:art art}
               {:art art :deps (artifact-tree-filter p deps)})))
        (filter #(keep? p %))))
+
+(defn artifact-tree-edges
+  "Create an edge list from a deeply-nested artifact tree."
+  [parent tree]
+  (reduce
+    (fn [out in]
+      (let [art (:art in)
+            deps (:deps in)]
+        (if (or (nil? deps) (empty? deps))
+          (conj out [parent art])
+          (let [edges (artifact-tree-edges art deps)]
+            (into (conj out [parent art]) edges)))))
+    #{} tree))
 
 (def data-tree
   (list
@@ -547,6 +560,20 @@
     :deps nil}
    {:art "niner"
     :deps (list {:art "mike"})}))
+
+(comment
+  (let [ex (list {:art "a"} {:art "b"} {:art "c"
+                                        :deps (list {:art "1"} {:art "2"})})]
+    (artifact-tree-edges "STEVE" ex))
+  (artifact-tree-edges "MASTER" data-tree)
+  ;; testing the full thing
+  (let [root {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"}
+        root-name (artifact-coord->string root)]
+    (->> root
+         artifact-tree
+         (artifact-tree-filter #(.contains (:art %) "guava"))
+         (artifact-tree-edges root-name)
+         (into []))))
 
 (comment
   (do data-tree)

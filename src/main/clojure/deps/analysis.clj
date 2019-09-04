@@ -3,6 +3,7 @@
   (:require [osgi.core :as osgi]
             [deps.common :as c]
             [deps.bundles :as b]
+            [deps.artifacts :as a]
             [clojure.java.shell :refer [sh]]
             [dorothy.core :as dot]
             [dorothy.jvm :refer [save! show!]]))
@@ -89,10 +90,60 @@
              (let [cluster (keyword (str "cluster_" idx))]
                (layer-create-node cluster (str "test_" idx) (map :name bundles)))))))
 
+(defn- graph-from-edges
+  "Make a graph with only an edge list as input."
+  [edges]
+  (dot/digraph [(dot/subgraph :edges (into [{} (dot/edge-attrs {:color :black})] edges))]))
+
 ;; ----------------------------------------------------------------------
 ;; # Graphing experiments
 ;;
 ;; Define, document, and iterate on your graphs here.
+
+(defn- partition-name-map
+  "Stolen from 'b/partition-bundles-by-name' so I can select the keys I care about."
+  [bundles]
+  (let [names bundle-pars
+        first-match
+        (fn [substrings bundle]
+          (let [bundle-name (:name bundle)]
+            (some #(when (.contains bundle-name %) %) substrings)))]
+    (reduce
+      (fn [out in]
+        (let [group-name (first-match names in)
+              group (get out group-name)]
+          (assoc out group-name (conj group in))))
+      {}
+      bundles)))
+
+(defn- location->dep-edges
+  "Do it"
+  [artifact-location]
+  (->> artifact-location
+       a/artifact-string->coord
+       a/artifact-tree
+       (a/artifact-tree-filter #(.contains (:art %) "guava"))
+       (a/artifact-tree-edges artifact-location)
+       (into [])))
+
+(comment
+  ;; TODO - this works fine
+  (location->dep-edges "mvn:ddf.catalog.core/catalog-core-api-impl/2.13.1"))
+
+(comment
+  (->> (osgi/bundles)
+       (filter (b/select-bundles-built-by (user-name)))
+       (partition-name-map)
+       (map (fn [[key coll]] [key (map #(:location %) coll)])))
+  (partition-name-map (osgi/bundles)))
+
+(comment
+  ;; TODO - graphviz must be doing something special with colon ':' in the graph definition
+  "Graph of transitive dependencies captured from Maven metadata."
+  (view-after-save
+    (graph-from-edges
+      (location->dep-edges "mvn:ddf.catalog.core/catalog-core-api-impl/2.13.1"))
+    {:format :svg :layout :dot}))
 
 (comment
   "List of DDF bundle names"
@@ -139,22 +190,22 @@
   "More advanced graphviz data sample, from http://www.graphviz.org/content/cluster"
   (view-after-save
     (dot/digraph
-      [(dot/subgraph
-         :cluster_0 [{:style :filled, :color :lightgrey, :label "platform"}
-                     (dot/node-attrs {:style :filled, :color :white})
-                     [:a0] [:a1] [:a2] [:a3]])
-       (dot/subgraph
-         :cluster_1 [{:color :blue, :label "catalog"}
-                     (dot/node-attrs {:style :filled})
-                     [:b0] [:b3]])
-       (dot/subgraph
-         :cluster_2 [{:color :green, :label "transformer"}
-                     (dot/node-attrs {:style :filled})
-                     [:b1] [:b2] [:b4]])
-       (dot/subgraph
-         :cluster_3 [{:color :purple, :label "feature"}
-                     #_(dot/node-attrs {:style :filled})
-                     [:c1] [:c2] [:c3]])
+      [#_(dot/subgraph
+           :cluster_0 [{:style :filled, :color :lightgrey, :label "platform"}
+                       (dot/node-attrs {:style :filled, :color :white})
+                       [:a0] [:a1] [:a2] [:a3]])
+       #_(dot/subgraph
+           :cluster_1 [{:color :blue, :label "catalog"}
+                       (dot/node-attrs {:style :filled})
+                       [:b0] [:b3]])
+       #_(dot/subgraph
+           :cluster_2 [{:color :green, :label "transformer"}
+                       (dot/node-attrs {:style :filled})
+                       [:b1] [:b2] [:b4]])
+       #_(dot/subgraph
+           :cluster_3 [{:color :purple, :label "feature"}
+                       #_(dot/node-attrs {:style :filled})
+                       [:c1] [:c2] [:c3]])
        (dot/subgraph
          :bundleDeps [
                       {}
