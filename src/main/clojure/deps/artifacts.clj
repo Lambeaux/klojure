@@ -345,7 +345,9 @@
          (into (:dependencyManagement out) (pom-deps-management in))})
       {:properties
        {:project.version
-        (->> (peek xml-chain) (xml-select-single [:version]) first)}
+        (->> (peek xml-chain) (xml-select-single [:version]) first)
+        :project.groupId ;; I think this is a bad assumption
+        (->> (peek xml-chain) (xml-select-single [:groupId]) first)}
        :dependencyManagement #{}}
       xml-chain)))
 
@@ -393,11 +395,18 @@
             (let [g (:g in)
                   a (:a in)
                   v (:v in)]
-              (if (nil? v)
-                (let [f (fn [d] (and (= g (:groupId d)) (= a (:artifactId d))))
-                      managed (->> dep-mgmt (filter f) first)]
-                  (->> props (pom-eval-prop (:version managed)) (assoc in :v) (conj out)))
-                (->> props (pom-eval-prop v) (assoc in :v) (conj out))))))
+              (conj out {:g (pom-eval-prop g props)
+                         :a a
+                         :v (if (nil? v)
+                              (let [f (fn [d] (and (= g (:groupId d)) (= a (:artifactId d))))
+                                    managed (->> dep-mgmt (filter f) first)]
+                                (pom-eval-prop (:version managed) props))
+                              (pom-eval-prop v props))})
+              #_(if (nil? v)
+                  (let [f (fn [d] (and (= g (:groupId d)) (= a (:artifactId d))))
+                        managed (->> dep-mgmt (filter f) first)]
+                    (->> props (pom-eval-prop (:version managed)) (assoc in :v) (conj out)))
+                  (->> props (pom-eval-prop v) (assoc in :v) (conj out))))))
         [] deps))))
 
 ;; Possibly useful for hiding the XML args so that, publicly, only coords are used.
@@ -578,6 +587,10 @@
 (comment
   (do data-tree)
   (artifact-tree-filter #(.contains (:art %) "zulu") data-tree)
+  ;; opensaml
+  (->> {:g "org.opensaml" :a "opensaml-saml-impl" :v "3.3.0"}
+       artifact-tree
+       #_(artifact-tree-filter #(.contains (:art %) "guava")))
   ;; Guava
   (->> {:g "ddf.catalog.core", :a "catalog-core-api-impl", :v "2.13.1"}
        artifact-tree

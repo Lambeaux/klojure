@@ -101,6 +101,7 @@
 ;; Define, document, and iterate on your graphs here.
 
 (defn- partition-name-map
+  ;; EXPERIMENTAL
   "Stolen from 'b/partition-bundles-by-name' so I can select the keys I care about."
   [bundles]
   (let [names bundle-pars
@@ -116,33 +117,66 @@
       {}
       bundles)))
 
+(comment
+  (partition-name-map (osgi/bundles)))
+
+(defn- partitions-of-locations
+  ;; EXPERIMENTAL
+  "Bundle defs -> partition name map of just locations."
+  [bundles]
+  (->> bundles
+       (partition-name-map)
+       (map (fn [[key coll]] [key (map #(:location %) coll)]))
+       (into {})))
+
+(comment
+  (partitions-of-locations (osgi/bundles)))
+
+(defn- select-partitions
+  ;; EXPERIMENTAL
+  "Given a vector of keys and a map, aggregate the values into a single seq."
+  [ks m]
+  (reduce
+    (fn [out in] (concat out (get m in)))
+    '()
+    ks))
+
+(comment
+  (select-partitions [:a :b :d] {:a [1 2 3] :b [4 5 6] :c [7 8 9] :d [11 12 13]}))
+
 (defn- location->dep-edges
-  "Do it"
-  [artifact-location]
-  (->> artifact-location
+  ;; EXPERIMENTAL
+  "Given a filter string and an artifact string, return an edge list for transitives matching the
+  filter string."
+  [filterstr artifact-location]
+  (->> (do (println (str "Processing " artifact-location)) artifact-location)
        a/artifact-string->coord
        a/artifact-tree
-       (a/artifact-tree-filter #(.contains (:art %) "guava"))
+       (a/artifact-tree-filter #(.contains (:art %) filterstr))
        (a/artifact-tree-edges artifact-location)
+       (map (fn [[left right]] [(subs left 4) (subs right 4)]))
        (into [])))
 
 (comment
-  ;; TODO - this works fine
-  (location->dep-edges "mvn:ddf.catalog.core/catalog-core-api-impl/2.13.1"))
+  (location->dep-edges "guava" "mvn:ddf.catalog.core/catalog-core-api-impl/2.13.1"))
 
 (comment
+  ;; preview of selection
   (->> (osgi/bundles)
        (filter (b/select-bundles-built-by (user-name)))
-       (partition-name-map)
-       (map (fn [[key coll]] [key (map #(:location %) coll)])))
-  (partition-name-map (osgi/bundles)))
-
-(comment
-  ;; TODO - graphviz must be doing something special with colon ':' in the graph definition
+       (partitions-of-locations)
+       (select-partitions ["security-sts-"
+                           "security-servlet-"
+                           "security-rest-"
+                           "security-idp-"
+                           "security-handler-"
+                           "security-"])
+       #_(map #(location->dep-edges "guava" %)))
+  ;; graphviz must be doing something special with colon ':' in the graph definition
   "Graph of transitive dependencies captured from Maven metadata."
   (view-after-save
     (graph-from-edges
-      (location->dep-edges "mvn:ddf.catalog.core/catalog-core-api-impl/2.13.1"))
+      (location->dep-edges "guava" "mvn:ddf.catalog.core/catalog-core-api-impl/2.13.1"))
     {:format :svg :layout :dot}))
 
 (comment
@@ -160,12 +194,12 @@
          (map (fn [coll] (map #(:name %) coll))))))
 
 (comment
-  "Graph of the catalog bundles, limiting dependencies to DDF packages only."
+  "Graph of the security bundles, limiting dependencies to DDF packages only."
   (let [bundles (->> (osgi/bundles)
                      (filter
                        (b/select-on-all
                          [(b/select-bundles-built-by (user-name))
-                          (b/select-bundles-by-name "catalog-")])))]
+                          (b/select-bundles-by-name "security-")])))]
     (view-after-save
       (dot/digraph
         (into
