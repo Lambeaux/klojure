@@ -318,7 +318,11 @@
 (defn mvn-edges-as-adjacency-list
   "Transforms edge maps into an adjacency list (vector of vectors)."
   [edges]
-  (into [] (map #(vector (:source %) (:target %)) edges)))
+  ;; Return a distinct coll since the :name information is gone
+  (->> edges
+       (map #(vector (:source %) (:target %)))
+       distinct
+       vec))
 
 (comment
   (mvn-edges-as-adjacency-list
@@ -371,15 +375,13 @@
         "/cx/deploy/graphs/ddf-2-17-2/platform-security-encryption-commands.xml"
         "/cx/deploy/graphs/ddf-2-17-2/platform-security-encryption-crypter.xml"
         "/cx/deploy/graphs/ddf-2-17-2/platform-security-encryption-impl.xml"]
-       mvn-collect-edges
-       distinct)
+       mvn-collect-edges)
 
   ;; Comprehensive edge map list for security
   (->> my-output-dir
        mvn-list-dep-files
        (filter #(or (.contains % "/security-") (.contains % "/platform-security-")))
-       mvn-collect-edges
-       distinct)
+       mvn-collect-edges)
 
   ;; Full compile/provided scope dependency graph for security
   (->> my-output-dir
@@ -387,13 +389,11 @@
        (filter #(or (.contains % "/security-") (.contains % "/platform-security-")))
        mvn-collect-edges
        (filter #(not= (:name %) "test"))
-       mvn-edges-as-adjacency-list
-       distinct)
+       mvn-edges-as-adjacency-list)
 
   ;; Full compile/provided scope dependency graph for all of DDF
   (->> my-output-dir
        mvn-list-dep-files
        mvn-collect-edges
        (filter #(not= (:name %) "test"))
-       mvn-edges-as-adjacency-list
-       distinct))
+       mvn-edges-as-adjacency-list))
