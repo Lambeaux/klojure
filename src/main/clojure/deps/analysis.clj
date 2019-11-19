@@ -11,7 +11,12 @@
             [loom.gen :as lm-gen]
             [loom.io :as lm-io]
             [dorothy.core :as dot]
-            [dorothy.jvm :refer [save! show!]]))
+            [dorothy.jvm :refer [save! show!]]
+            [clojure.java.io :as io]
+            [clojure.xml :as xml]
+            [clojure.string :as string]
+            [clojure.data.json :as json])
+  (:import (java.io ByteArrayInputStream)))
 
 (defn- user-name []
   (System/getProperty "user.name"))
@@ -96,6 +101,77 @@
              (layer-create-node cluster (str "test_" idx) (map :name bundles)))))))
 
 ;; ----------------------------------------------------------------------
+;; # HTML Output
+;;
+;; Exporting Loom graphs for an interactive HTML document.
+
+(def ddf-home (System/getProperty "ddf.home"))
+(def viz-file (str ddf-home "/graphs/viz.html"))
+(def viz-resource "templates/graph-output.html")
+
+(defn- write-html-file [json-string-nodes json-string-edges]
+  (let [template (->> viz-resource io/resource slurp)
+        processed (-> template
+                      (clojure.string/replace #"\"REPLACE_NODES\"" json-string-nodes)
+                      (clojure.string/replace #"\"REPLACE_EDGES\"" json-string-edges))]
+    (spit viz-file processed :create true)))
+
+(comment
+  (write-html-file
+    "[{\"id\": \"A\", \"label\": \"A\"},{\"id\": \"B\", \"label\": \"B\"}]"
+    "[{\"from\": \"A\", \"to\": \"B\"}]"))
+
+(defn- graph->node-json [graph]
+  (->> graph
+       (lm-gra/nodes)
+       (map #(hash-map :id % :label %))
+       vec
+       clojure.data.json/write-str))
+
+(comment
+  (graph->node-json (lm-gra/digraph ["A" "B"] ["B" "D"] ["C" "D"] ["D" "E"])))
+
+(defn- graph->edge-json [graph]
+  (->> graph
+       (lm-gra/edges)
+       (map #(hash-map :from (get % 0) :to (get % 1)))
+       vec
+       clojure.data.json/write-str))
+
+(comment
+  (graph->edge-json (lm-gra/digraph ["A" "B"] ["B" "D"] ["C" "D"] ["D" "E"])))
+
+(defn export-as-html
+  ""
+  [graph]
+  (write-html-file
+    (graph->node-json graph)
+    (graph->edge-json graph)))
+
+(comment
+  ;; Generating random graphs for testing
+  (lm-io/view
+    (lm-gra/digraph ["A" "B"] ["B" "D"] ["C" "D"] ["D" "E"]))
+  (lm-gen/gen-rand (lm-gra/digraph) 10 10)
+
+  ;; Transform loom to JSON
+  (export-as-html (lm-gra/digraph ["A" "B"] ["B" "D"] ["C" "D"] ["D" "E"]))
+
+  ;; Manipulating the HTML document as XML
+  (with-open [s (.openStream (io/resource "templates/graph-output.html"))]
+    (xml/parse s))
+
+  ;; Manipulating the HTML document as text (string substitution)
+  (-> (->> "templates/graph-output.html" io/resource slurp)
+      (clojure.string/replace #"\"REPLACE_NODES\"" "nodes")
+      (clojure.string/replace #"\"REPLACE_EDGES\"" "edges"))
+
+  {:id "" :label ""}                                        ;; node
+  {:from "" :to ""}                                         ;; edge
+
+  ())
+
+;; ----------------------------------------------------------------------
 ;; # Loom Graph Support
 ;;
 ;; Composing dependency data into Loom graphs for better filtering capabilities.
@@ -157,10 +233,10 @@
   #(let [src (:source %)]
      (not
        (or #_(.startsWith src "ddf.features")
-           (.startsWith src "ddf.test")
-           (.startsWith src "org.codice.ddf.broker")
-           (.contains src "sample-")
-           (.contains src "test-")))))
+         (.startsWith src "ddf.test")
+         (.startsWith src "org.codice.ddf.broker")
+         (.contains src "sample-")
+         (.contains src "test-")))))
 
 (def select-internal-edges
   #(let [tar (:target %)]
@@ -191,6 +267,12 @@
 ;; # Graphs & Subgraphs
 ;;
 ;; Examples of building subgraphs defined with respect to certain dependencies of interest.
+
+(comment
+  "Draw the full maven dependency graph for DDF, without test or third party deps, and output
+  as HTML for interactive exploration."
+  (->> (graph-maven-dependencies m/my-output-dir filter-default)
+       (export-as-html)))
 
 (comment
   "Draw the full maven dependency graph for security, without test or third party deps."
