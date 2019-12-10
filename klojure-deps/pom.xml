@@ -46,9 +46,16 @@
             <artifactId>data.json</artifactId>
             <version>0.2.7</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.karaf.shell</groupId>
+            <artifactId>org.apache.karaf.shell.core</artifactId>
+            <version>${karaf.version}</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>
+        <sourceDirectory>src/test/clojure</sourceDirectory>
         <resources>
             <resource>
                 <directory>src/main/resources</directory>
@@ -58,6 +65,21 @@
             </resource>
         </resources>
         <plugins>
+            <plugin>
+                <groupId>com.theoryinpractise</groupId>
+                <artifactId>clojure-maven-plugin</artifactId>
+                <version>1.8.1</version>
+                <extensions>true</extensions>
+                <executions>
+                    <execution>
+                        <id>test</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
@@ -70,6 +92,7 @@
                         <!--  <_noee>true</_noee>  -->
                         <Embed-Dependency>*;scope=!provided</Embed-Dependency>
                         <Embed-Transitive>true</Embed-Transitive>
+                        <Import-Package>!org.apache.tools.*,!org.apache.xmlbeans,*</Import-Package>
                         <!-- Resolve all imports at runtime -->
                         <DynamicImport-Package>*</DynamicImport-Package>
                     </instructions>

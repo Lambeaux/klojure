@@ -1,5 +1,5 @@
-(ns deps.common-test
-  (:require [deps.common :as c]
+(ns klojure.deps.common-test
+  (:require [klojure.deps.common :as c]
             [clojure.test :refer [deftest is]]))
 
 (deftest test-collmap-inverted

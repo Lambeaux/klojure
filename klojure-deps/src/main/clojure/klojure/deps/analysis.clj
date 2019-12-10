@@ -271,10 +271,19 @@
 ;; Examples of building subgraphs defined with respect to certain dependencies of interest.
 
 (comment
+  "List nodes for tracking down issues by filtering"
+  (->> (graph-maven-dependencies m/my-output-dir filter-default)
+       (lm-gra/nodes)
+       (filter #(.contains % "app"))
+       #_(filter #(.contains % "feature"))
+       (filter #(.contains % "catalog")))
   "Draw the full maven dependency graph for DDF, without test or third party deps, and output
   as HTML for interactive exploration."
-  (->> (graph-maven-dependencies m/my-output-dir filter-default)
-       (export-as-html)))
+  (-> (graph-maven-dependencies m/my-output-dir filter-default)
+      (lm-gra/remove-nodes "ddf.catalog/catalog-app/2.21.0-SNAPSHOT"
+                           "ddf.catalog/catalog-app/features")
+      (subgraph-bottom-up "ddf.catalog.core/catalog-core-api/2.21.0-SNAPSHOT")
+      (export-as-html)))
 
 (comment
   (let [g (graph-maven-dependencies m/my-output-dir filter-security)

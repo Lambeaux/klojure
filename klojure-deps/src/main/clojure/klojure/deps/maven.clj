@@ -135,18 +135,16 @@
        :content))
 
 (defn- graphml-dfs-for-content
-  "Performs a depth-first search for the first string content item. Not actually
-  specific to the GraphML schema, but XML in general."
+  "Performs a depth-first search of the XML subtree for the first string content item."
   [xml]
-  (if-not (contains? xml :content)
-    (throw (IllegalArgumentException. (str "Invalid XML element: " xml)))
-    (loop [xml-node xml]
-      (let [next (first (:content xml-node))]
-        (if (instance? String next)
-          next
-          (if-not (contains? next :content)
-            (throw (IllegalArgumentException. (str "Invalid XML element: " next)))
-            (recur next)))))))
+  (loop [current-node xml]
+    (if-not (contains? current-node :content)
+      (throw (IllegalArgumentException.
+               (str "Invalid XML element in document, missing content: " xml)))
+      (let [next-child (first (:content current-node))]
+        (if (instance? String next-child)
+          next-child
+          (recur next-child))))))
 
 (comment
   (graphml-dfs-for-content
@@ -303,6 +301,7 @@
        (filter #(not= 0 (:exit %)))))
 
 (comment
+  my-path-to-ddf
   (mvn-generate-deps-for-proj my-path-to-ddf))
 
 (defn mvn-move-deps-to
@@ -316,6 +315,7 @@
          (filter #(not= 0 (:exit %))))))
 
 (comment
+  my-output-dir
   (mvn-move-deps-to my-path-to-ddf my-output-dir))
 
 (defn mvn-list-dep-files
